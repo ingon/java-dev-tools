@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-const fixtureURI = "jdt://contents/totipo-proxy-test/Fixture.class?source=fixture"
+const fixtureURI = "jdt://contents/java-dev-tools-fixture/Fixture.class?source=fixture"
 const fixtureSource = "class Fixture { String s = \"literal \\n and \\t\"; }\n"
 
 // Separate processes exercise the real proxy's pipes, framing, and shutdown.
 func TestProxyProcess(t *testing.T) {
-	if os.Getenv("TOTIPO_PROXY_PROCESS") != "1" {
+	if os.Getenv("JAVA_DEV_TOOLS_TEST_PROXY") != "1" {
 		return
 	}
 	if err := run(); err != nil {
@@ -29,7 +29,7 @@ func TestProxyProcess(t *testing.T) {
 }
 
 func TestServerProcess(t *testing.T) {
-	if os.Getenv("TOTIPO_SERVER_PROCESS") != "1" {
+	if os.Getenv("JAVA_DEV_TOOLS_TEST_SERVER") != "1" {
 		return
 	}
 	r := bufio.NewReader(os.Stdin)
@@ -83,12 +83,12 @@ func TestVirtualSourceNavigation(t *testing.T) {
 	if shell == "" {
 		t.Fatal("TEST_SHELL must name the available shell")
 	}
-	stub := "#!" + shell + "\nexport TOTIPO_SERVER_PROCESS=1\nexec '" + strings.ReplaceAll(exe, "'", "'\\''") + "' -test.run=^TestServerProcess$\n"
+	stub := "#!" + shell + "\nexport JAVA_DEV_TOOLS_TEST_SERVER=1\nexec '" + strings.ReplaceAll(exe, "'", "'\\''") + "' -test.run=^TestServerProcess$\n"
 	if err := os.WriteFile(filepath.Join(dir, "jdtls"), []byte(stub), 0700); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe, "-test.run=^TestProxyProcess$")
-	cmd.Env = append(os.Environ(), "TOTIPO_PROXY_PROCESS=1", "PATH="+dir+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "JAVA_DEV_TOOLS_TEST_PROXY=1", "PATH="+dir+":"+os.Getenv("PATH"))
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Stderr = io.Discard

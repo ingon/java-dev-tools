@@ -1,28 +1,32 @@
 # Java development tools for Nix
 
-Reusable JDTLS source navigation for Helix and a Gradle dependency-source helper.
-This flake owns the pinned proxy package, correctness patch and protocol tests;
-application/library repositories only consume its tools.
+JDTLS source navigation for Helix and a Gradle dependency-source helper, reusable
+across Java projects supported by JDTLS. Use your project's Nix packages, JDK and
+optional Gradle; no project-specific editor configuration or copied scripts are
+required.
 
-The `jdtls` command runs the Nix JDTLS server through a source-document bridge.
-The bridge advertises its supported client capability during initialization, so
-Helix's built-in Java configuration works without project-specific language
-settings. JDK and dependency source archives must still be present and accepted
-by the project's Gradle dependency verification policy.
+For an existing repository, follow the [integration guide](INTEGRATION.md). It
+gives humans and agents the changes to `flake.nix`, optional `build.gradle.kts`
+output layout, `.gitignore`, source verification, and the validation handoff.
 
-## Consume from a project
+The `jdtls` command bridges JDTLS's virtual source documents to local files that
+Helix can open. It enables the source capability during initialization, so
+Helix's built-in Java language configuration works with JDK and library sources.
+Source archives must be available and accepted by the project's dependency policy.
 
-While developing sibling checkouts, add the deliberately local path input:
+## Add to a development shell
+
+Add the published flake input:
 
 ```nix
 inputs.java-dev-tools = {
-  url = "path:../java-dev-tools";
+  url = "github:ingon/java-dev-tools";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 ```
 
-Add `java-dev-tools` to the consuming flake's `outputs` arguments. Given the
-project's existing `pkgs`, `jdk` and `gradle`, compose its development shell:
+Include `java-dev-tools` in your flake's `outputs` arguments. With your existing
+`pkgs`, `jdk` and `gradle`, compose the shell:
 
 ```nix
 let
@@ -35,63 +39,82 @@ in {
 }
 ```
 
-The helper uses the caller's packages and toolchains, including overriding JDTLS
-to run on the caller's JDK. It does not import a second nixpkgs for that use.
-`gradle` is optional; omit it for a Maven/non-Gradle project to get only `jdtls`.
-Returned attributes are `jdtls`, `proxy`, `sources` (`null` without Gradle),
-`packages` (the launcher plus the optional source command), and `shellEnv`.
-Merge `shellEnv` into `mkShell` to expose `GRADLE_HOME` for Eclipse/Buildship
-started directly from the shell, including projects without a Gradle wrapper.
-It is empty when Gradle is omitted. The JDTLS launcher uses the same value.
-Build, publication and check definitions stay in the consuming repository.
+The library uses the caller's packages and runs JDTLS on the supplied JDK. Choose
+a JDK supported by that JDTLS version; the project's build configuration controls
+its compilation target. Project dependencies, build settings and publication
+configuration stay in the project. The consuming flake's lockfile pins this input.
 
-This is the same integration for `totipo-java` and `totipo-desktop`; no Go source,
-patch, tests, Gradle helper file or Helix configuration needs copying. After a
-remote repository is created and this work is published, replace the local URL
-with that repository's `github:OWNER/REPO` URL and update only this input's lock.
-A remote input avoids the sibling-checkout requirement and is pinned by the
-consumer's lockfile. No remote repository has been created by this extraction.
-Local path inputs intentionally include the local source tree; keep build and
-cache artifacts out of this repository.
+For Maven or another supported non-Gradle setup, omit `gradle`:
 
-## Commands
+```nix
+javaEditor = java-dev-tools.lib.mkJavaEditor { inherit pkgs jdk; };
+```
 
-Activate the project devShell before starting Helix. Keep its server command as
-`jdtls`. Reload the environment and restart Helix after updating this input.
+Install/configure your build tool separately. This variant provides `jdtls`
+without the Gradle source helper or Gradle shell settings.
 
-The launcher selects a workspace under `${XDG_CACHE_HOME:-$HOME/.cache}/jdtls/`,
-keyed by the SHA-256 of the Git checkout root (or physical current directory for
-non-Git projects). Separate checkouts with the same basename use distinct caches;
-starting in a subdirectory of the same checkout reuses that checkout's workspace.
-Set `JDTLS_WORKSPACE` to choose an explicit workspace. The launcher preserves
-caller arguments and exposes the real server to the proxy without name recursion.
-Its private read-only source-file cache uses the operating system temporary path.
+`mkJavaEditor` returns:
 
-With Gradle supplied, verify/download dependency sources from a project root:
+| Attribute | Purpose |
+| --- | --- |
+| `jdtls` | Launcher with source navigation and a workspace per checkout. |
+| `proxy` | The underlying virtual-source bridge package. |
+| `sources` | `java-ide-sources`, or `null` when Gradle is omitted. |
+| `packages` | The launcher and optional source helper, ready for `mkShell`. |
+| `shellEnv` | `GRADLE_HOME` when Gradle is supplied; otherwise empty. |
+
+Merge `shellEnv` into `mkShell` to support Eclipse/Buildship launched directly
+from that shell, including projects without a Gradle wrapper. The JDTLS launcher
+uses the same Gradle home. For local tool development, you can temporarily use a
+local flake input or a Nix input override instead of the GitHub input.
+
+## Use with Helix
+
+Activate the project's devShell before starting Helix and keep the Java server
+command as `jdtls`. Reload the environment and restart Helix after updating the
+input. No project-local `languages.toml` is needed for the source capability.
+
+Workspaces live under `${XDG_CACHE_HOME:-$HOME/.cache}/jdtls/`, keyed by the SHA-256
+of the Git checkout root. A non-Git project uses its physical working directory.
+Separate checkouts with the same name get distinct caches; subdirectories of one
+checkout share its workspace. Set `JDTLS_WORKSPACE` to choose a workspace explicitly,
+for example when running separate language-server sessions in one checkout.
+
+The launcher preserves arguments and exposes the real server to the proxy without
+command-name recursion. Its private read-only source cache uses the operating
+system temporary directory. JDTLS project import and source attachment must still
+succeed; this bridge does not replace the language server's build-system support.
+
+## Resolve Gradle dependency sources
+
+With Gradle supplied, run from the build root:
 
 ```sh
 java-ide-sources
 ```
 
-For an intentional dependency update, generate missing checksum entries with:
+The helper covers the root Java project and Java subprojects, supporting both
+single-module and multi-project builds using Gradle's Java plugins. It uses the
+Eclipse classpath model without generating IDE project files. Non-Java aggregator
+projects are skipped. The helper does not provide Android-specific import support.
+
+After an intentional dependency update, generate missing verification entries:
 
 ```sh
 java-ide-sources --write-verification-metadata sha256
 ```
 
-Review every generated checksum against canonical artifacts. The command retains
-strict verification by default and does not change dependency versions or locks.
-Source checksums and any fixed Gradle dependency-cache maintenance remain the
-consuming project's responsibility. Eclipse/Buildship and JDTLS can both consume
-those checked-in checksums, independently of this editor bridge.
+Review generated checksums against canonical artifacts before accepting them.
+The helper respects project dependency verification and does not change versions
+or locks. Source checksums and fixed dependency-cache maintenance belong to the
+project. Eclipse/Buildship and JDTLS can both use those verification entries.
 
-## Package maintenance
+## Maintain this flake
 
-Standalone outputs use the committed nixpkgs lock, inherited unchanged from the
-original consuming project; consuming projects can follow their own nixpkgs.
-Packages are exposed on x86_64 Linux, aarch64 Linux and aarch64 Darwin:
-`jdtls` (default), `jdtls-proxy`, and `java-ide-sources`. Standalone defaults use
-JDK 25 and Gradle 9; the library API accepts the consumer's chosen supported tools.
+Standalone packages use the committed nixpkgs lock and default to JDK 25 and
+Gradle 9. The library API uses the caller's packages and toolchains. Packages are
+exposed on x86_64 Linux, aarch64 Linux and aarch64 Darwin: `jdtls` (default),
+`jdtls-proxy`, and `java-ide-sources`.
 
 The human-owned qualification command is:
 
@@ -99,16 +122,14 @@ The human-owned qualification command is:
 nix flake check
 ```
 
-It builds/tests the proxy on the current system. Its tests cover virtual-source
-translation, overlapping request IDs, text escaping, reverse URI mapping,
-request-field preservation, read-only cache replacement, automatic capability
-negotiation and shutdown. The proxy uses only the Go standard library. Tests
-operate against a protocol fixture; actual JDTLS/editor navigation is a separate
-integration check after environment reload. Automated agents must not run Nix.
+It builds/tests the proxy on the current system. Protocol tests cover virtual-source
+translation, overlapping request IDs, text escaping, reverse URI mapping, request
+preservation, read-only cache replacement, automatic capability negotiation and
+shutdown. Actual editor navigation and Gradle project import are separate
+integration checks. Automated agents must not run Nix.
 
-Upstream is [quantonganh/jdtls-wrapper](https://github.com/quantonganh/jdtls-wrapper)
-(MIT), pinned to commit `51df1676f9d0d1116a5a14f2d3741a9a425202e4`. The local
-patch fixes request ID allocation, escaping, message preservation, synchronization,
-pipe termination and source-cache handling, and enables the capability the bridge
-implements. This repo packages/patches that upstream project rather than vendoring
-or forking its Go module. Nix supplies the Go toolchain during package builds.
+The upstream proxy is [quantonganh/jdtls-wrapper](https://github.com/quantonganh/jdtls-wrapper)
+(MIT), pinned to commit `51df1676f9d0d1116a5a14f2d3741a9a425202e4`. This flake owns
+the package, correctness patch and tests. The patch also enables the source
+capability implemented by the bridge. Nix supplies the Go toolchain; the proxy
+uses only the Go standard library.
