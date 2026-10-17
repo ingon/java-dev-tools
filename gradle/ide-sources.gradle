@@ -1,0 +1,16 @@
+// Resolve the same dependency sources as Eclipse/Buildship without writing IDE files.
+// Run with --no-configuration-cache; this opt-in helper inspects project models.
+gradle.projectsLoaded {
+    rootProject.allprojects { pluginManager.apply('eclipse') }
+    rootProject.tasks.register('ideSources') {
+        group = 'ide'
+        description = 'Resolve and verify dependency sources for Eclipse and JDTLS'
+        doLast {
+            rootProject.subprojects.each { project ->
+                def entries = project.eclipse.classpath.resolveDependencies()
+                def sources = entries.findAll { it.kind == 'lib' && it.sourcePath != null }
+                logger.lifecycle("${project.path}: resolved ${sources.size()} dependency source attachments")
+            }
+        }
+    }
+}
