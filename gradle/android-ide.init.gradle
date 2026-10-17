@@ -1,0 +1,64 @@
+// Opt-in AGP 9 editor model. Normal builds and mkJavaEditor do not load it.
+import org.gradle.plugins.ide.eclipse.model.Library
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
+import org.gradle.plugins.ide.eclipse.model.internal.FileReferenceFactory
+
+def selectedVariant = @variant@
+def includeUnitTests = @unitTests@
+def aapt2Override = @aapt2@
+def downloadDependencySources = @downloadSources@
+
+gradle.beforeProject { project ->
+    // Tooling API clients do not launch the CLI that consumes GRADLE_OPTS.
+    if (aapt2Override != null) {
+        project.extensions.extraProperties.set('android.aapt2FromMavenOverride', aapt2Override)
+    }
+    ['com.android.application', 'com.android.library'].each { pluginId ->
+        project.plugins.withId(pluginId) {
+            project.pluginManager.apply('eclipse')
+            project.afterEvaluate {
+                def android = project.extensions.getByName('android')
+                if (android.buildTypes.findByName(selectedVariant) == null || !android.productFlavors.isEmpty()) {
+                    throw new GradleException('java-dev-tools Android model requires an unflavored build type: ' + selectedVariant)
+                }
+                def capitalizedVariant = selectedVariant.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + selectedVariant.substring(1)
+                def components = project.extensions.getByName('androidComponents')
+                def eclipse = project.extensions.getByName('eclipse')
+                eclipse.synchronizationTasks(project.tasks.named("generate${capitalizedVariant}RFile"))
+                eclipse.classpath.defaultOutputDir = project.layout.buildDirectory.dir('eclipse/default').get().asFile
+                eclipse.classpath.downloadSources = downloadDependencySources
+                eclipse.classpath.plusConfigurations += [project.configurations.getByName("${selectedVariant}CompileClasspath")]
+                if (includeUnitTests) {
+                    eclipse.classpath.plusConfigurations += [project.configurations.getByName("${selectedVariant}UnitTestCompileClasspath")]
+                }
+                eclipse.classpath.file.whenMerged { classpath ->
+                    // Select one build type; do not combine alternate implementations.
+                    classpath.entries.removeAll { it instanceof SourceFolder }
+                    def sourceNames = ['main', selectedVariant]
+                    if (includeUnitTests) { sourceNames += ['test', "test${capitalizedVariant}"] }
+                    sourceNames.each { name ->
+                        def sourceSet = android.sourceSets.findByName(name)
+                        sourceSet?.java?.srcDirs?.findAll { it.isDirectory() }?.each { directory ->
+                            def entry = new SourceFolder(project.relativePath(directory), project.relativePath(project.layout.buildDirectory.dir("eclipse/${name}").get().asFile))
+                            if (name == 'test' || name == "test${capitalizedVariant}") {
+                                entry.entryAttributes['test'] = 'true'
+                            }
+                            classpath.entries.add(entry)
+                        }
+                    }
+                    def references = new FileReferenceFactory()
+                    components.sdkComponents.bootClasspath.get().each { file ->
+                        classpath.entries.add(new Library(references.fromFile(file.asFile)))
+                    }
+                    // Include the selected variant's generated R classes.
+                    project.tasks.named("compile${capitalizedVariant}JavaWithJavac").get().classpath.files.each { file ->
+                        def library = new Library(references.fromFile(file))
+                        if (!classpath.entries.any { it.path == library.path }) {
+                            classpath.entries.add(library)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

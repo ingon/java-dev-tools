@@ -49,6 +49,13 @@ func TestServerProcess(t *testing.T) {
 		}
 		switch request["method"] {
 		case "initialize":
+			if os.Getenv("JAVA_DEV_TOOLS_EXPECT_SETTINGS") == "1" {
+				options := request["params"].(map[string]any)["initializationOptions"].(map[string]any)
+				settings := options["settings"].(map[string]any)
+				if !reflect.DeepEqual(settings["java.import.gradle.arguments"], []any{"--init-script", "/adapter.gradle"}) {
+					os.Exit(1)
+				}
+			}
 			send(request["id"], map[string]any{"capabilities": map[string]any{}})
 		case "textDocument/definition":
 			point := map[string]any{"line": 0, "character": 0}
@@ -88,7 +95,9 @@ func TestVirtualSourceNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe, "-test.run=^TestProxyProcess$")
-	cmd.Env = append(os.Environ(), "JAVA_DEV_TOOLS_TEST_PROXY=1", "PATH="+dir+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "JAVA_DEV_TOOLS_TEST_PROXY=1", "PATH="+dir+":"+os.Getenv("PATH"),
+		"JAVA_DEV_TOOLS_JDTLS_SETTINGS={\"java.import.gradle.arguments\":[\"--init-script\",\"/adapter.gradle\"]}",
+		"JAVA_DEV_TOOLS_EXPECT_SETTINGS=1")
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Stderr = io.Discard

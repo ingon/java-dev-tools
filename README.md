@@ -14,6 +14,10 @@ Helix can open. It enables the source capability during initialization, so
 Helix's built-in Java language configuration works with JDK and library sources.
 Source archives must be available and accepted by the project's dependency policy.
 
+Android applications and libraries have a separate opt-in
+[`mkAndroidEditor` integration](#android-gradle-projects). Ordinary Java projects
+continue to use `mkJavaEditor` unchanged.
+
 ## Add to a development shell
 
 Add the published flake input:
@@ -43,6 +47,8 @@ The library uses the caller's packages and runs JDTLS on the supplied JDK. Choos
 a JDK supported by that JDTLS version; the project's build configuration controls
 its compilation target. Project dependencies, build settings and publication
 configuration stay in the project. The consuming flake's lockfile pins this input.
+If the build JDK is too old to run JDTLS, supply `serverJdk` separately. It defaults
+to `jdk`; the launcher retains `JAVA_HOME` for the build JDK in either case.
 
 For Maven or another supported non-Gradle setup, omit `gradle`:
 
@@ -109,6 +115,51 @@ The helper respects project dependency verification and does not change versions
 or locks. Source checksums and fixed dependency-cache maintenance belong to the
 project. Eclipse/Buildship and JDTLS can both use those verification entries.
 
+## Android Gradle projects
+
+Use the separate Android helper with the project's existing build tools:
+
+```nix
+javaEditor = java-dev-tools.lib.mkAndroidEditor {
+  inherit pkgs jdk gradle;
+  # Optional: Nix-patched AAPT2 matching the project's SDK/build-tools selection.
+  aapt2 = "${sdkRoot}/build-tools/36.0.0/aapt2";
+};
+```
+
+Merge `javaEditor.shellEnv` and install `javaEditor.packages` as in the Java
+example. No project `.helix/languages.toml`, copied Gradle init script or launcher
+override is needed. The same repository owns both helpers; Android is not enabled
+by `mkJavaEditor` or the standalone default package.
+
+`mkAndroidEditor` defaults to a private `pkgs.jdk21_headless` server runtime,
+keeping the supplied build JDK in `JAVA_HOME`. It exports the supplied Gradle
+installation through `GRADLE_HOME`. The proxy supplies JDTLS startup settings
+before the first import and preserves the adapter on configuration updates.
+Other client preferences override defaults; client Gradle arguments are retained
+alongside the required init script, without duplicating it.
+
+The opt-in adapter provides AGP 9 application/library source folders, dependencies,
+SDK jars, generated R classes and separate IDE output under `build/eclipse`.
+It selects one unflavored build type (`variant = "debug"` by default), with JVM
+tests (`unitTests = true`). Product flavors, instrumented tests and Kotlin source
+editing are outside this model. An unsupported/flavored selection fails explicitly
+instead of combining incompatible source roots. A custom Gradle build directory
+is respected. Normal Gradle builds do not load this adapter.
+
+The optional `aapt2` argument selects a patched executable for Buildship; it does
+not depend on the CLI's `GRADLE_OPTS`. Omit it when the project's normal Maven
+AAPT2 works. Dependency source downloads default to false; use
+`downloadSources = true` only when the project's verification policy accepts those
+archives. Binary dependencies retain their normal resolution and strict
+verification. The generic `java-ide-sources` command is omitted in Android mode.
+`androidInitScript` is exposed for direct model diagnostics.
+
+The shared launcher also accepts `initializationSettings = { ...; }` when called
+through `mkJavaEditor`. Empty settings (the default) leave ordinary Java startup
+and client configuration unchanged apart from the existing source capability.
+Both nested and dotted JDTLS preference keys are accepted by the merge.
+
 ## Maintain this flake
 
 Standalone packages use the committed nixpkgs lock and default to JDK 25 and
@@ -125,7 +176,10 @@ nix flake check
 It builds/tests the proxy on the current system. Protocol tests cover virtual-source
 translation, overlapping request IDs, text escaping, reverse URI mapping, request
 preservation, read-only cache replacement, automatic capability negotiation and
-shutdown. Actual editor navigation and Gradle project import are separate
+shutdown, opt-in startup settings, client preference preservation and later
+settings updates. An offline Gradle check covers root and multi-project Java
+source helpers and verifies that the Android adapter leaves Java models unchanged.
+Actual editor navigation and Android Gradle project import are separate
 integration checks. Automated agents must not run Nix.
 
 The upstream proxy is [quantonganh/jdtls-wrapper](https://github.com/quantonganh/jdtls-wrapper)

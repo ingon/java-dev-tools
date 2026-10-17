@@ -12,7 +12,9 @@ buildGoModule {
   doCheck = true;
   patches = [ ./jdtls-wrapper.patch ];
   postPatch = ''
+    cp ${./initialization-settings.go} initialization-settings.go
     cp ${../tests/jdtls-wrapper_test.go} main_test.go
+    cp ${../tests/initialization-settings_test.go} initialization-settings_test.go
   '';
   preCheck = ''
     export TEST_SHELL=${runtimeShell}

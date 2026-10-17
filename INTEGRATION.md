@@ -4,7 +4,7 @@ Use this guide for a human or agent integrating an existing project. The toolkit
 supports Java projects that JDTLS can import; it is not tied to an application or
 library. The Gradle helper supports root Java projects and Java subprojects using
 Gradle's Java plugins. Maven and other supported layouts can use the launcher
-without that helper. Android-specific import is outside this guide.
+without that helper. Android projects use the separate opt-in helper below.
 
 Read the target repository's `AGENTS.md` and build instructions first. Preserve
 its JDK, Gradle version, compilation target, locks and verification policy. This
@@ -70,11 +70,43 @@ and install the project's build tool separately. `shellEnv` is then empty and
 supported by the selected JDTLS version; do not change the build's bytecode target
 merely to select a language-server runtime.
 
-The project needs no new `.helix/languages.toml` for this toolkit. Keep unrelated
+The project needs no new `.helix/languages.toml` for either toolkit helper. Keep unrelated
 editor settings. If there is a custom Java server command, ensure it invokes
 `jdtls` from the devShell rather than bypassing the bridge with an absolute server
 path or an older proxy. Do not hardcode a shared `-data` workspace; the launcher
 isolates checkouts automatically and accepts `JDTLS_WORKSPACE` when needed.
+
+### Android instead of plain Java
+
+For an AGP 9 application/library with an unflavored build type, use:
+
+```nix
+javaEditor = java-dev-tools.lib.mkAndroidEditor {
+  inherit pkgs jdk gradle;
+  aapt2 = "${sdkRoot}/build-tools/36.0.0/aapt2"; # only if a patched AAPT2 is needed
+};
+```
+
+Keep the project's JDK/Gradle/SDK selection and use its actual build-tools version
+in `aapt2`. The helper defaults the server runtime to JDK 21; `serverJdk` can
+override that without changing the build JDK. `variant` defaults to `"debug"`,
+`unitTests` to true and `downloadSources` to false. Merge `shellEnv` and install
+`packages` exactly as in step 2. Skip step 3: this helper already isolates IDE
+output in the selected module's build directory. Skip the standard Java source
+helper in step 5; it is not installed in Android mode. Preserve strict verification
+and review source-archive checksums before enabling their downloads.
+
+Do not copy the adapter into the consuming project or add Android startup
+preferences to Helix: the helper and proxy own both. When migrating a local
+integration, remove those now-redundant files/launcher patches only after switching
+to the new toolkit revision. Existing Java consumers keep `mkJavaEditor`; their
+defaults, source helper and import behavior remain unchanged.
+
+The Android model covers one unflavored application/library build type plus its
+JVM tests. It does not cover instrumented tests, product flavors or Kotlin editing.
+Validate actual app import and app/SDK/dependency navigation after environment
+reload; server discovery alone is insufficient. A fresh temporary JDTLS workspace
+can distinguish stale import state from adapter failure without deleting caches.
 
 ## 3. Optionally update `build.gradle.kts` output paths
 

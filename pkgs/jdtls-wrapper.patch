@@ -2,32 +2,46 @@
 +++ b/main.go
 @@ -14,0 +15 @@
 +	"sync"
-@@ -72,0 +74,4 @@
+@@ -72,0 +74,8 @@
++	initializationSettings, err := readInitializationSettings()
++	if err != nil {
++		return err
++	}
 +	sourceCache, err := os.MkdirTemp("", "jdtls-sources-")
 +	if err != nil {
 +		return err
 +	}
-@@ -93,0 +99 @@
+@@ -93,0 +103 @@
 +	var serverWrite sync.Mutex
-@@ -95 +101 @@
+@@ -95 +105 @@
 -	m := make(map[string]string)
 +	m := sync.Map{}
-@@ -101,0 +108 @@
-+				return
-@@ -104,2 +111,3 @@
+@@ -102,4 +112,6 @@
+-			}
+-
 -			var stdReq *stdRequest
 -			if err := json.Unmarshal(body, &stdReq); err != nil {
++				return
++			}
++
 +			// Preserve every field when translating requests for cached sources.
 +			var request map[string]json.RawMessage
 +			if err := json.Unmarshal(body, &request); err != nil {
-@@ -106,0 +115 @@
-+				return
-@@ -108,4 +117,13 @@
+@@ -107,7 +119,22 @@
+-			}
 -
 -			if jdtURI, ok := m[stdReq.Params.TextDocument.URI]; ok {
 -				stdReq.Params.TextDocument.URI = jdtURI
 -				body, _ = json.Marshal(stdReq)
-+			if enableSourceCapability(request) {
+-			}
+-
++				return
++			}
++			changed := enableSourceCapability(request, initializationSettings)
++			if configureSettingsNotification(request, initializationSettings) {
++				changed = true
++			}
++			if changed {
 +				body, _ = json.Marshal(request)
 +			}
 +			var params, document map[string]json.RawMessage
@@ -40,41 +54,42 @@
 +				params["textDocument"], _ = json.Marshal(document)
 +				request["params"], _ = json.Marshal(params)
 +				body, _ = json.Marshal(request)
-@@ -113,0 +132 @@
++			}
++
 +			serverWrite.Lock()
-@@ -115,0 +135 @@
+@@ -115,0 +143 @@
 +			serverWrite.Unlock()
-@@ -120,0 +141 @@
+@@ -120,0 +149 @@
 +	nextID := -1 // Helix uses nonnegative request IDs.
-@@ -126,0 +148 @@
+@@ -126,0 +156 @@
 +				return
-@@ -171 +193,2 @@
+@@ -171 +201,2 @@
 -				newID := id + 1
 +				newID := nextID
 +				nextID--
-@@ -192,3 +215 @@
+@@ -192,3 +223 @@
 -					result = strings.ReplaceAll(result, `\n`, "\n")
 -					result = strings.ReplaceAll(result, `\t`, "\t")
 -					tmpFileName := "/tmp" + strings.TrimSuffix(uri.Path, ".class") + ".java"
 +					tmpFileName := filepath.Join(sourceCache, strings.TrimPrefix(strings.TrimSuffix(uri.Path, ".class"), "/")+".java")
-@@ -196,5 +217,2 @@
+@@ -196,2 +225,2 @@
 -					m[targetURI] = uri.String()
 -					if err := os.MkdirAll(filepath.Dir(tmpFileName), 0755); err != nil {
--						fmt.Fprintln(os.Stderr, "[jdtls-wrapper]", err.Error())
--					}
--					if err := os.WriteFile(tmpFileName, []byte(result), 0400); err != nil {
 +					m.Store(targetURI, uri.String())
 +					if err := writeSource(tmpFileName, result); err != nil {
-@@ -201,0 +220 @@
+@@ -199,4 +228,3 @@
+-					}
+-					if err := os.WriteFile(tmpFileName, []byte(result), 0400); err != nil {
+-						fmt.Fprintln(os.Stderr, "[jdtls-wrapper]", err.Error())
+-					}
 +						return
-@@ -202,0 +222 @@
++					}
 +
-@@ -230,0 +251 @@
+@@ -230,0 +259 @@
 +				serverWrite.Lock()
-@@ -231,0 +253 @@
+@@ -231,0 +261 @@
 +				serverWrite.Unlock()
-@@ -291,0 +314,48 @@
-+}
+@@ -292,0 +323,51 @@
 +
 +// Replace read-only cached sources atomically, including on repeated navigation.
 +func writeSource(path, content string) error {
@@ -100,7 +115,7 @@
 +}
 +
 +// The bridge implements virtual-source support itself, so editors need no setup.
-+func enableSourceCapability(request map[string]json.RawMessage) bool {
++func enableSourceCapability(request map[string]json.RawMessage, defaults ...map[string]json.RawMessage) bool {
 +	var method string
 +	_ = json.Unmarshal(request["method"], &method)
 +	if method != "initialize" {
@@ -116,9 +131,13 @@
 +	}
 +	params := decodeObject(request["params"])
 +	options := decodeObject(params["initializationOptions"])
++	if len(defaults) > 0 && len(defaults[0]) > 0 {
++		options["settings"] = mergeInitializationSettings(defaults[0], options["settings"])
++	}
 +	capabilities := decodeObject(options["extendedClientCapabilities"])
 +	capabilities["classFileContentsSupport"] = json.RawMessage("true")
 +	options["extendedClientCapabilities"], _ = json.Marshal(capabilities)
 +	params["initializationOptions"], _ = json.Marshal(options)
 +	request["params"], _ = json.Marshal(params)
 +	return true
++}

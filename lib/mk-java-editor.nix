@@ -1,7 +1,7 @@
-{ pkgs, jdk, gradle ? null }:
+{ pkgs, jdk, gradle ? null, serverJdk ? jdk, initializationSettings ? { } }:
 let
   proxy = pkgs.callPackage ../pkgs/jdtls-proxy.nix { };
-  server = pkgs.jdt-language-server.override { inherit jdk; };
+  server = pkgs.jdt-language-server.override { jdk = serverJdk; };
   # Also expose Gradle discovery to IDEs started directly from the devShell.
   shellEnv = pkgs.lib.optionalAttrs (gradle != null) {
     GRADLE_HOME = "${gradle}/libexec/gradle";
@@ -9,6 +9,11 @@ let
   jdtls = pkgs.writeShellScriptBin "jdtls" ''
     set -eu
     export JAVA_HOME=${pkgs.lib.escapeShellArg "${jdk}/lib/openjdk"}
+    ${if initializationSettings == { } then ''
+      unset JAVA_DEV_TOOLS_JDTLS_SETTINGS
+    '' else ''
+      export JAVA_DEV_TOOLS_JDTLS_SETTINGS=${pkgs.lib.escapeShellArg (builtins.toJSON initializationSettings)}
+    ''}
     ${pkgs.lib.optionalString (gradle != null) ''
       export GRADLE_HOME=${pkgs.lib.escapeShellArg shellEnv.GRADLE_HOME}
     ''}
