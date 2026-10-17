@@ -2,11 +2,15 @@
 let
   proxy = pkgs.callPackage ../pkgs/jdtls-proxy.nix { };
   server = pkgs.jdt-language-server.override { inherit jdk; };
+  # Also expose Gradle discovery to IDEs started directly from the devShell.
+  shellEnv = pkgs.lib.optionalAttrs (gradle != null) {
+    GRADLE_HOME = "${gradle}/libexec/gradle";
+  };
   jdtls = pkgs.writeShellScriptBin "jdtls" ''
     set -eu
     export JAVA_HOME=${pkgs.lib.escapeShellArg "${jdk}/lib/openjdk"}
     ${pkgs.lib.optionalString (gradle != null) ''
-      export GRADLE_HOME=${pkgs.lib.escapeShellArg "${gradle}/libexec/gradle"}
+      export GRADLE_HOME=${pkgs.lib.escapeShellArg shellEnv.GRADLE_HOME}
     ''}
     if [ -n "''${JDTLS_WORKSPACE:-}" ]; then
       workspace="$JDTLS_WORKSPACE"
@@ -30,6 +34,6 @@ let
     '';
 in
 {
-  inherit jdtls proxy sources;
+  inherit jdtls proxy sources shellEnv;
   packages = [ jdtls ] ++ pkgs.lib.optional (sources != null) sources;
 }

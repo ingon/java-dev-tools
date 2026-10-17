@@ -28,19 +28,22 @@ project's existing `pkgs`, `jdk` and `gradle`, compose its development shell:
 let
   javaEditor = java-dev-tools.lib.mkJavaEditor { inherit pkgs jdk gradle; };
 in {
-  devShells.default = pkgs.mkShell {
+  devShells.default = pkgs.mkShell (javaEditor.shellEnv // {
     JAVA_HOME = "${jdk}/lib/openjdk";
     packages = [ jdk gradle ] ++ javaEditor.packages;
-  };
+  });
 }
 ```
 
 The helper uses the caller's packages and toolchains, including overriding JDTLS
 to run on the caller's JDK. It does not import a second nixpkgs for that use.
 `gradle` is optional; omit it for a Maven/non-Gradle project to get only `jdtls`.
-Returned attributes are `jdtls`, `proxy`, `sources` (`null` without Gradle), and
-`packages` (the launcher plus the optional source command). Project-specific
-build/publication/check definitions stay in the consuming repository.
+Returned attributes are `jdtls`, `proxy`, `sources` (`null` without Gradle),
+`packages` (the launcher plus the optional source command), and `shellEnv`.
+Merge `shellEnv` into `mkShell` to expose `GRADLE_HOME` for Eclipse/Buildship
+started directly from the shell, including projects without a Gradle wrapper.
+It is empty when Gradle is omitted. The JDTLS launcher uses the same value.
+Build, publication and check definitions stay in the consuming repository.
 
 This is the same integration for `totipo-java` and `totipo-desktop`; no Go source,
 patch, tests, Gradle helper file or Helix configuration needs copying. After a
